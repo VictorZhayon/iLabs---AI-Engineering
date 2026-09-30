@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="AI Code Analyzer - Get instant feedback, explanations, and suggestions for your code." />
+    <title>AI Code Analyzer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="background-effects">
+      <div class="glow-orb orb-1"></div>
+      <div class="glow-orb orb-2"></div>
+    </div>
+    
+    <div id="app">
+      <header>
+        <div class="logo">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="url(#paint0_linear)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2 17L12 22L22 17" stroke="url(#paint1_linear)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2 12L12 17L22 12" stroke="url(#paint2_linear)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <defs>
+              <linearGradient id="paint0_linear" x1="2" y1="7" x2="22" y2="7" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#8B5CF6" />
+                <stop offset="1" stop-color="#3B82F6" />
+              </linearGradient>
+              <linearGradient id="paint1_linear" x1="2" y1="19.5" x2="22" y2="19.5" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#8B5CF6" />
+                <stop offset="1" stop-color="#3B82F6" />
+              </linearGradient>
+              <linearGradient id="paint2_linear" x1="2" y1="14.5" x2="22" y2="14.5" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#8B5CF6" />
+                <stop offset="1" stop-color="#3B82F6" />
+              </linearGradient>
+            </defs>
+          </svg>
+          <h1>Code<span class="highlight">Sense</span> AI</h1>
+        </div>
+        <p class="subtitle">Intelligent code analysis, explanations, and improvements.</p>
+      </header>
+
+      <main class="container">
+        <section class="input-section glass-panel">
+          <div class="header-action">
+            <h2>Analyze Code</h2>
+            <button id="analyzeBtn" class="btn primary-btn">
+              <span class="btn-text">Analyze</span>
+              <div class="loader hidden"></div>
+            </button>
+          </div>
+          <div class="editor-container">
+            <textarea id="codeInput" placeholder="Paste your code here... (JavaScript, Python, React, etc.)" spellcheck="false"></textarea>
+            <div class="editor-backdrop"></div>
+          </div>
+        </section>
+
+        <section id="resultsSection" class="results-section hidden">
+          
+          <div class="result-card glass-panel fade-in delay-1">
+            <div class="card-header">
+              <div class="icon-wrapper blue">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+              </div>
+              <h3>Explanation</h3>
+            </div>
+            <div class="card-content" id="explanationContent">
+              <!-- Content injected via JS -->
+            </div>
+          </div>
+
+          <div class="grid-2-cols">
+            <div class="result-card glass-panel fade-in delay-2">
+              <div class="card-header">
+                <div class="icon-wrapper red">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                </div>
+                <h3>Potential Issues</h3>
+              </div>
+              <ul class="card-list" id="issuesList">
+                <!-- Content injected via JS -->
+              </ul>
+            </div>
+
+            <div class="result-card glass-panel fade-in delay-3">
+              <div class="card-header">
+                <div class="icon-wrapper green">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                </div>
+                <h3>Suggestions</h3>
+              </div>
+              <ul class="card-list" id="suggestionsList">
+                <!-- Content injected via JS -->
+              </ul>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>
