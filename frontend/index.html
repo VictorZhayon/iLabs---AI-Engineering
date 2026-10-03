@@ -41,10 +41,48 @@
           </svg>
           <h1>Code<span class="highlight">Sense</span> AI</h1>
         </div>
-        <p class="subtitle">Intelligent code analysis, explanations, and improvements.</p>
       </header>
+      
+      <div id="userProfileContainer" class="top-right-profile hidden glass-panel">
+        <div class="profile-info">
+          <span class="profile-name" id="profileName">User Name</span>
+          <span class="profile-email" id="profileEmail">user@example.com</span>
+        </div>
+        <button id="logoutBtn" class="btn logout-btn">Logout</button>
+      </div>
 
-      <main class="container">
+      <div id="authSection" class="container">
+        <div class="glass-panel auth-panel">
+          <h2 id="authTitle">Welcome Back</h2>
+          <p id="authSubtitle" class="subtitle">Log in to your account</p>
+          
+          <form id="authForm" class="auth-form">
+            <div class="form-group hidden" id="nameGroup">
+              <label for="name">Name</label>
+              <input type="text" id="name" placeholder="Your Name">
+            </div>
+            <div class="form-group">
+              <label for="email">Email</label>
+              <input type="email" id="email" placeholder="you@example.com" required>
+            </div>
+            <div class="form-group">
+              <label for="password">Password</label>
+              <input type="password" id="password" placeholder="••••••••" required>
+            </div>
+            <p id="authError" class="error-msg hidden"></p>
+            <button type="submit" class="btn primary-btn w-full">
+              <span id="authSubmitText">Log In</span>
+              <div class="loader hidden" id="authLoader"></div>
+            </button>
+          </form>
+          
+          <div class="auth-switch">
+            <p id="authSwitchText">Don't have an account? <a href="#" id="toggleAuthMode">Sign up</a></p>
+          </div>
+        </div>
+      </div>
+
+      <main id="mainSection" class="container hidden">
         <section class="input-section glass-panel">
           <div class="header-action">
             <h2>Analyze Code</h2>
