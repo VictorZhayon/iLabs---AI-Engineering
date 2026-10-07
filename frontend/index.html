@@ -83,60 +83,94 @@
       </div>
 
       <main id="mainSection" class="container hidden">
-        <section class="input-section glass-panel">
-          <div class="header-action">
-            <h2>Analyze Code</h2>
-            <button id="analyzeBtn" class="btn primary-btn">
-              <span class="btn-text">Analyze</span>
-              <div class="loader hidden"></div>
-            </button>
-          </div>
-          <div class="editor-container">
-            <textarea id="codeInput" placeholder="Paste your code here... (JavaScript, Python, React, etc.)" spellcheck="false"></textarea>
-            <div class="editor-backdrop"></div>
-          </div>
-        </section>
-
-        <section id="resultsSection" class="results-section hidden">
-          
-          <div class="result-card glass-panel fade-in delay-1">
-            <div class="card-header">
-              <div class="icon-wrapper blue">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+        <div class="main-layout">
+          <!-- History Sidebar -->
+          <aside id="historySidebar" class="history-sidebar glass-panel">
+            <div class="sidebar-header">
+              <div class="sidebar-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                </svg>
+                <h3>History</h3>
               </div>
-              <h3>Explanation</h3>
+              <button id="historyToggleBtn" class="history-toggle-btn" title="Toggle history sidebar">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="15 18 9 12 15 6"/>
+                </svg>
+              </button>
             </div>
-            <div class="card-content" id="explanationContent">
-              <!-- Content injected via JS -->
+            <div class="sidebar-content">
+              <div id="historyList" class="history-list">
+                <!-- History items injected via JS -->
+              </div>
+              <div id="historyEmpty" class="history-empty">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+                </svg>
+                <p>No analyses yet</p>
+                <span>Your history will appear here</span>
+              </div>
             </div>
-          </div>
+          </aside>
 
-          <div class="grid-2-cols">
-            <div class="result-card glass-panel fade-in delay-2">
-              <div class="card-header">
-                <div class="icon-wrapper red">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <!-- Main Content Area -->
+          <div class="main-content">
+            <section class="input-section glass-panel">
+              <div class="header-action">
+                <h2>Analyze Code</h2>
+                <button id="analyzeBtn" class="btn primary-btn">
+                  <span class="btn-text">Analyze</span>
+                  <div class="loader hidden"></div>
+                </button>
+              </div>
+              <div class="editor-container">
+                <textarea id="codeInput" placeholder="Paste your code here... (JavaScript, Python, React, etc.)" spellcheck="false"></textarea>
+                <div class="editor-backdrop"></div>
+              </div>
+            </section>
+
+            <section id="resultsSection" class="results-section hidden">
+              <div class="result-card glass-panel fade-in delay-1">
+                <div class="card-header">
+                  <div class="icon-wrapper blue">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                  </div>
+                  <h3>Explanation</h3>
                 </div>
-                <h3>Potential Issues</h3>
-              </div>
-              <ul class="card-list" id="issuesList">
-                <!-- Content injected via JS -->
-              </ul>
-            </div>
-
-            <div class="result-card glass-panel fade-in delay-3">
-              <div class="card-header">
-                <div class="icon-wrapper green">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                <div class="card-content" id="explanationContent">
+                  <!-- Content injected via JS -->
                 </div>
-                <h3>Suggestions</h3>
               </div>
-              <ul class="card-list" id="suggestionsList">
-                <!-- Content injected via JS -->
-              </ul>
-            </div>
+
+              <div class="grid-2-cols">
+                <div class="result-card glass-panel fade-in delay-2">
+                  <div class="card-header">
+                    <div class="icon-wrapper red">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    </div>
+                    <h3>Potential Issues</h3>
+                  </div>
+                  <ul class="card-list" id="issuesList">
+                    <!-- Content injected via JS -->
+                  </ul>
+                </div>
+
+                <div class="result-card glass-panel fade-in delay-3">
+                  <div class="card-header">
+                    <div class="icon-wrapper green">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                    </div>
+                    <h3>Suggestions</h3>
+                  </div>
+                  <ul class="card-list" id="suggestionsList">
+                    <!-- Content injected via JS -->
+                  </ul>
+                </div>
+              </div>
+            </section>
           </div>
-        </section>
+        </div>
       </main>
     </div>
     <script type="module" src="/main.js"></script>
