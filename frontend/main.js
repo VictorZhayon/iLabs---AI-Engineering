@@ -34,6 +34,10 @@ function checkAuth() {
     authSection.classList.add('hidden');
     mainSection.classList.remove('hidden');
     userProfileContainer.classList.remove('hidden');
+    
+    if (typeof fetchHistory === 'function') {
+      fetchHistory();
+    }
   } else {
     authSection.classList.remove('hidden');
     mainSection.classList.add('hidden');
@@ -116,6 +120,122 @@ logoutBtn.addEventListener('click', () => {
 });
 // --- END AUTHENTICATION LOGIC ---
 
+// --- HISTORY LOGIC ---
+const historySidebar = document.getElementById('historySidebar');
+const historyToggleBtn = document.getElementById('historyToggleBtn');
+const historyList = document.getElementById('historyList');
+const historyEmpty = document.getElementById('historyEmpty');
+const mainLayout = document.querySelector('.main-layout');
+const HISTORY_API = 'http://localhost:3000/api/history';
+let historyData = [];
+
+function getCodePreview(code) {
+  const inline = code.replace(/\n/g, ' ').trim();
+  return inline.length > 50 ? inline.substring(0, 50) + '...' : inline;
+}
+
+function formatTimeAgo(isoString) {
+  const date = new Date(isoString);
+  const now = new Date();
+  const seconds = Math.floor((now - date) / 1000);
+  
+  if (seconds < 60) return 'Just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} days ago`;
+}
+
+async function fetchHistory() {
+  const token = localStorage.getItem('token');
+  if (!token) return;
+  
+  try {
+    const res = await fetch(HISTORY_API, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error('Failed to fetch history');
+    historyData = await res.json();
+    renderHistory();
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function renderHistory() {
+  historyList.innerHTML = '';
+  if (historyData.length === 0) {
+    historyEmpty.classList.remove('hidden');
+    return;
+  }
+  
+  historyEmpty.classList.add('hidden');
+  historyData.forEach(item => {
+    const div = document.createElement('div');
+    div.className = 'history-item fade-in';
+    div.dataset.id = item.id;
+    div.innerHTML = `
+      <button class="delete-history-btn" title="Delete entry" data-id="${item.id}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+      </button>
+      <div class="history-item-header">
+        <span class="language-badge">${item.language}</span>
+        <span class="history-time">${formatTimeAgo(item.createdAt)}</span>
+      </div>
+      <div class="history-code-preview">${getCodePreview(item.code)}</div>
+    `;
+    
+    div.addEventListener('click', (e) => {
+      if (e.target.closest('.delete-history-btn')) return;
+      
+      document.querySelectorAll('.history-item').forEach(el => el.classList.remove('active'));
+      div.classList.add('active');
+      
+      codeInput.value = item.code;
+      renderResults(item.result);
+    });
+    
+    const delBtn = div.querySelector('.delete-history-btn');
+    delBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm('Delete this history entry?')) return;
+      await deleteHistory(item.id);
+    });
+    
+    historyList.appendChild(div);
+  });
+}
+
+async function deleteHistory(id) {
+  const token = localStorage.getItem('token');
+  try {
+    const res = await fetch(\`\${HISTORY_API}/\${id}\`, {
+      method: 'DELETE',
+      headers: { 'Authorization': \`Bearer \${token}\` }
+    });
+    if (res.ok) {
+      const activeItem = document.querySelector(\`.history-item.active[data-id="\${id}"]\`);
+      if (activeItem) {
+        codeInput.value = '';
+        resultsSection.classList.add('hidden');
+      }
+      await fetchHistory();
+    }
+  } catch (err) {
+    console.error('Error deleting history:', err);
+  }
+}
+
+if (historyToggleBtn) {
+  historyToggleBtn.addEventListener('click', () => {
+    historySidebar.classList.toggle('collapsed');
+    if (mainLayout) mainLayout.classList.toggle('sidebar-closed');
+  });
+}
+// --- END HISTORY LOGIC ---
+
 const analyzeBtn = document.getElementById('analyzeBtn');
 const codeInput = document.getElementById('codeInput');
 const btnText = analyzeBtn.querySelector('.btn-text');
@@ -163,6 +283,7 @@ analyzeBtn.addEventListener('click', async () => {
 
     const data = await response.json();
     renderResults(data);
+    await fetchHistory(); // refresh sidebar
   } catch (error) {
     console.error('Failed to analyze code:', error);
     alert('Failed to analyze code. Make sure the backend server is running and your API key is set.');
