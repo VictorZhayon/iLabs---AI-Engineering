@@ -211,12 +211,12 @@ function renderHistory() {
 async function deleteHistory(id) {
   const token = localStorage.getItem('token');
   try {
-    const res = await fetch(\`\${HISTORY_API}/\${id}\`, {
+    const res = await fetch(`${HISTORY_API}/${id}`, {
       method: 'DELETE',
-      headers: { 'Authorization': \`Bearer \${token}\` }
+      headers: { 'Authorization': `Bearer ${token}` }
     });
     if (res.ok) {
-      const activeItem = document.querySelector(\`.history-item.active[data-id="\${id}"]\`);
+      const activeItem = document.querySelector(`.history-item.active[data-id="${id}"]`);
       if (activeItem) {
         codeInput.value = '';
         resultsSection.classList.add('hidden');
