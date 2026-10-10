@@ -256,7 +256,6 @@ const historyToggleBtnMain = document.getElementById('historyToggleBtnMain');
 const historyList = document.getElementById('historyList');
 const historyEmpty = document.getElementById('historyEmpty');
 const mainLayout = document.querySelector('.main-layout');
-const HISTORY_API = 'http://localhost:3000/api/history';
 let historyData = [];
 
 function getCodePreview(code) {
