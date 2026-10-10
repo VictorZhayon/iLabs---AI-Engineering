@@ -26,19 +26,26 @@ try {
     
     if (process.env.FIREBASE_SERVICE_ACCOUNT) {
         // Load from environment variable in production (Vercel)
-        serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+        try {
+            serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+        } catch (parseError) {
+            console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT environment variable. Ensure it is valid JSON.", parseError);
+        }
     } else if (fs.existsSync(serviceAccountPath)) {
         // Load from local file during development
         serviceAccount = require(serviceAccountPath);
     }
 
     if (serviceAccount && serviceAccount.project_id !== "REPLACE_ME") {
-        initializeApp({
-            credential: cert(serviceAccount)
-        });
+        // Vercel Serverless containers can be reused, so only initialize if no apps exist
+        if (getApps().length === 0) {
+            initializeApp({
+                credential: cert(serviceAccount)
+            });
+            console.log("Firebase Admin initialized successfully.");
+        }
         db = getFirestore();
         adminAuth = getAuth();
-        console.log("Firebase Admin initialized successfully.");
     } else {
         console.warn("Firebase credentials not found or are placeholders. Firebase Admin is not initialized.");
     }
