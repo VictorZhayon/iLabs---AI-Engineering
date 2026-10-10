@@ -424,6 +424,16 @@ textarea::placeholder {
   border: 1px solid rgba(239, 68, 68, 0.2);
 }
 
+.success-msg {
+  color: var(--color-green);
+  font-size: 0.9rem;
+  text-align: center;
+  background: rgba(16, 185, 129, 0.1);
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
 .w-full {
   width: 100%;
 }
@@ -527,11 +537,11 @@ textarea::placeholder {
 
 .history-sidebar.collapsed {
   width: 0;
-  padding-left: 0;
-  padding-right: 0;
+  padding: 0;
   border: none;
   opacity: 0;
   margin: 0;
+  pointer-events: none;
 }
 
 .sidebar-header {

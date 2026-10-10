@@ -1,0 +1,21 @@
+{
+  "name": "CodeSense AI",
+  "short_name": "CodeSense",
+  "description": "AI Code Analyzer - Get instant feedback, explanations, and suggestions for your code.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "icons": [
+    {
+      "src": "/icon-192x192.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg"
+    },
+    {
+      "src": "/icon-512x512.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ]
+}

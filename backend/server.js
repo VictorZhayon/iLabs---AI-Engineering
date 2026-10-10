@@ -2,12 +2,11 @@ const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 const { GoogleGenAI } = require('@google/genai');
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_jwt_key_here_for_development';
-const users = []; // In-memory user database
-const history = []; // In-memory history database
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore } = require('firebase-admin/firestore');
+const { getAuth } = require('firebase-admin/auth');
+const fs = require('fs');
+const crypto = require('crypto');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -18,66 +17,169 @@ app.use(express.json());
 // Initialize Google Gen AI
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-// Auth Middleware
-const authenticateToken = (req, res, next) => {
+// Initialize Firebase Admin
+let db;
+let adminAuth;
+try {
+    const serviceAccountPath = './serviceAccountKey.json';
+    if (fs.existsSync(serviceAccountPath)) {
+        const serviceAccount = require(serviceAccountPath);
+        if (serviceAccount.project_id !== "REPLACE_ME") {
+            initializeApp({
+                credential: cert(serviceAccount)
+            });
+            db = getFirestore();
+            adminAuth = getAuth();
+            console.log("Firebase Admin initialized successfully.");
+        } else {
+            console.warn("serviceAccountKey.json is a placeholder. Please update it with real credentials.");
+        }
+    } else {
+        console.warn("serviceAccountKey.json not found. Firebase Admin is not initialized.");
+    }
+} catch (error) {
+    console.error("Error initializing Firebase Admin:", error);
+}
+
+// Auth Middleware using Firebase Admin
+const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
     
     if (token == null) return res.status(401).json({ error: 'Authentication token required' });
 
-    jwt.verify(token, JWT_SECRET, (err, user) => {
-        if (err) return res.status(403).json({ error: 'Invalid or expired token' });
-        req.user = user;
+    if (getApps().length === 0) {
+        return res.status(500).json({ error: 'Firebase Admin not initialized properly on the server' });
+    }
+
+    try {
+        const decodedToken = await adminAuth.verifyIdToken(token);
+        req.user = decodedToken; // decodedToken contains uid, email, email_verified, etc.
         next();
-    });
+    } catch (error) {
+        console.error("Token verification error:", error);
+        return res.status(403).json({ error: 'Invalid or expired token' });
+    }
 };
 
-app.post('/api/signup', async (req, res) => {
+// --- AUTH / OTP ROUTES ---
+
+app.post('/api/auth/request-otp', authenticateToken, async (req, res) => {
+    if (!db) return res.status(500).json({ error: 'Database not initialized' });
+
     try {
-        const { name, email, password } = req.body;
-        if (!name || !email || !password) {
-            return res.status(400).json({ error: 'Name, email and password are required' });
-        }
-        
-        if (users.find(u => u.email === email)) {
-            return res.status(400).json({ error: 'User already exists' });
+        const uid = req.user.uid;
+        const email = req.user.email;
+        const name = req.user.name || 'User';
+
+        // Rate limiting check: No more than 1 request per minute
+        const oneMinuteAgo = Date.now() - 60 * 1000;
+        const docRef = db.collection('otp_verifications').doc(uid);
+        const doc = await docRef.get();
+
+        if (doc.exists) {
+            if (doc.data().createdAt > oneMinuteAgo) {
+                return res.status(429).json({ error: 'Please wait a minute before requesting another code.' });
+            }
         }
 
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const newUser = { id: Date.now().toString(), name, email, password: hashedPassword };
-        users.push(newUser);
+        // Generate 6-digit OTP securely
+        const otp = crypto.randomInt(100000, 999999).toString();
         
-        const token = jwt.sign({ id: newUser.id, name: newUser.name, email: newUser.email }, JWT_SECRET, { expiresIn: '24h' });
-        res.status(201).json({ token, user: { name: newUser.name, email: newUser.email }, message: 'User created successfully' });
+        // Expiration: 10 minutes from now
+        const expiresAt = Date.now() + 10 * 60 * 1000;
+
+        // Save to Firestore
+        await db.collection('otp_verifications').doc(uid).set({
+            uid,
+            email,
+            otp,
+            expiresAt,
+            createdAt: Date.now()
+        });
+
+        // Send via EmailJS REST API
+        const emailjsResponse = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                service_id: process.env.EMAILJS_SERVICE_ID,
+                template_id: process.env.EMAILJS_TEMPLATE_ID,
+                user_id: process.env.EMAILJS_PUBLIC_KEY,
+                accessToken: process.env.EMAILJS_PRIVATE_KEY,
+                template_params: {
+                    to_email: email,
+                    to_name: name,
+                    otp_code: otp
+                }
+            })
+        });
+
+        if (!emailjsResponse.ok) {
+            const errText = await emailjsResponse.text();
+            console.error('EmailJS Error:', errText);
+            throw new Error('Failed to send email via EmailJS');
+        }
+
+        res.json({ message: 'OTP sent successfully' });
+
     } catch (error) {
-        console.error("Signup error:", error);
-        res.status(500).json({ error: 'Error creating user' });
+        console.error("Error requesting OTP:", error);
+        res.status(500).json({ error: 'Failed to send OTP. Please try again later.' });
     }
 });
 
-app.post('/api/login', async (req, res) => {
+app.post('/api/auth/verify-otp', authenticateToken, async (req, res) => {
+    if (!db) return res.status(500).json({ error: 'Database not initialized' });
+
     try {
-        const { email, password } = req.body;
-        const user = users.find(u => u.email === email);
-        
-        if (!user) {
-            return res.status(400).json({ error: 'Invalid email or password' });
+        const { otp } = req.body;
+        const uid = req.user.uid;
+
+        if (!otp) return res.status(400).json({ error: 'OTP is required' });
+
+        const docRef = db.collection('otp_verifications').doc(uid);
+        const doc = await docRef.get();
+
+        if (!doc.exists) {
+            return res.status(400).json({ error: 'No OTP request found for this user.' });
         }
 
-        const validPassword = await bcrypt.compare(password, user.password);
-        if (!validPassword) {
-            return res.status(400).json({ error: 'Invalid email or password' });
+        const data = doc.data();
+
+        if (Date.now() > data.expiresAt) {
+            return res.status(400).json({ error: 'OTP has expired. Please request a new one.' });
         }
 
-        const token = jwt.sign({ id: user.id, name: user.name, email: user.email }, JWT_SECRET, { expiresIn: '24h' });
-        res.json({ token, user: { name: user.name, email: user.email }, message: 'Logged in successfully' });
+        if (data.otp !== otp) {
+            return res.status(400).json({ error: 'Invalid OTP.' });
+        }
+
+        // OTP is valid and not expired
+        // Mark user as email verified in Firebase Auth
+        await adminAuth.updateUser(uid, {
+            emailVerified: true
+        });
+
+        // Delete the OTP document so it cannot be reused
+        await docRef.delete();
+
+        res.json({ message: 'Email verified successfully.' });
+
     } catch (error) {
-        console.error("Login error:", error);
-        res.status(500).json({ error: 'Error logging in' });
+        console.error("Error verifying OTP:", error);
+        res.status(500).json({ error: 'Failed to verify OTP' });
     }
 });
+
+// --- MAIN ROUTES ---
 
 app.post('/api/analyze', authenticateToken, async (req, res) => {
+    // Ensure email is verified
+    if (!req.user.email_verified) {
+        return res.status(403).json({ error: 'Email must be verified to use this feature.' });
+    }
+
     try {
         const { code } = req.body;
 
@@ -113,10 +215,8 @@ ${code}
 
         const textResponse = response.text;
         
-        // Parse the JSON response
         let result;
         try {
-            // Sometimes Gemini wraps the JSON in markdown blocks even with responseMimeType set
             const cleanedText = textResponse.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
             result = JSON.parse(cleanedText);
         } catch (parseError) {
@@ -124,16 +224,20 @@ ${code}
             return res.status(500).json({ error: 'Invalid response format from AI' });
         }
 
-        // Auto-save to history
         const historyEntry = {
-            id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-            userId: req.user.id,
+            userId: req.user.uid,
             code,
             result,
             language: detectLanguage(code),
             createdAt: new Date().toISOString()
         };
-        history.push(historyEntry);
+
+        if (db) {
+            const docRef = await db.collection('history').add(historyEntry);
+            historyEntry.id = docRef.id;
+        } else {
+            historyEntry.id = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+        }
 
         res.json(result);
 
@@ -142,8 +246,6 @@ ${code}
         res.status(500).json({ error: 'Failed to analyze code' });
     }
 });
-
-// --- HISTORY ROUTES ---
 
 // Simple language detection heuristic
 function detectLanguage(code) {
@@ -161,30 +263,56 @@ function detectLanguage(code) {
 }
 
 // Get all history for the authenticated user (newest first)
-app.get('/api/history', authenticateToken, (req, res) => {
-    const userHistory = history
-        .filter(entry => entry.userId === req.user.id)
-        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    res.json(userHistory);
+app.get('/api/history', authenticateToken, async (req, res) => {
+    if (!db) return res.json([]);
+    
+    try {
+        const snapshot = await db.collection('history')
+            .where('userId', '==', req.user.uid)
+            .get();
+            
+        const userHistory = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        userHistory.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        res.json(userHistory);
+    } catch (error) {
+        console.error("Error fetching history:", error);
+        res.status(500).json({ error: 'Failed to fetch history' });
+    }
 });
 
 // Get a single history entry by ID
-app.get('/api/history/:id', authenticateToken, (req, res) => {
-    const entry = history.find(e => e.id === req.params.id && e.userId === req.user.id);
-    if (!entry) {
-        return res.status(404).json({ error: 'History entry not found' });
+app.get('/api/history/:id', authenticateToken, async (req, res) => {
+    if (!db) return res.status(404).json({ error: 'Database not initialized' });
+    
+    try {
+        const docRef = db.collection('history').doc(req.params.id);
+        const doc = await docRef.get();
+        if (!doc.exists || doc.data().userId !== req.user.uid) {
+            return res.status(404).json({ error: 'History entry not found' });
+        }
+        res.json({ id: doc.id, ...doc.data() });
+    } catch (error) {
+        console.error("Error fetching history entry:", error);
+        res.status(500).json({ error: 'Failed to fetch history entry' });
     }
-    res.json(entry);
 });
 
 // Delete a single history entry by ID
-app.delete('/api/history/:id', authenticateToken, (req, res) => {
-    const index = history.findIndex(e => e.id === req.params.id && e.userId === req.user.id);
-    if (index === -1) {
-        return res.status(404).json({ error: 'History entry not found' });
+app.delete('/api/history/:id', authenticateToken, async (req, res) => {
+    if (!db) return res.status(404).json({ error: 'Database not initialized' });
+    
+    try {
+        const docRef = db.collection('history').doc(req.params.id);
+        const doc = await docRef.get();
+        if (!doc.exists || doc.data().userId !== req.user.uid) {
+            return res.status(404).json({ error: 'History entry not found' });
+        }
+        await docRef.delete();
+        res.json({ message: 'History entry deleted' });
+    } catch (error) {
+        console.error("Error deleting history entry:", error);
+        res.status(500).json({ error: 'Failed to delete history entry' });
     }
-    history.splice(index, 1);
-    res.json({ message: 'History entry deleted' });
 });
 
 app.listen(port, () => {

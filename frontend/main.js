@@ -1,10 +1,27 @@
-const API_URL = 'http://localhost:3000/api/analyze';
-const AUTH_API = 'http://localhost:3000/api';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut, onAuthStateChanged } from 'firebase/auth';
 
-// --- AUTHENTICATION LOGIC ---
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+
+const API_URL = 'http://localhost:3000/api/analyze';
+const AUTH_API = 'http://localhost:3000/api/auth';
+
+// --- UI ELEMENTS ---
 const authSection = document.getElementById('authSection');
+const onboardingSection = document.getElementById('onboardingSection');
 const mainSection = document.getElementById('mainSection');
 const userProfileContainer = document.getElementById('userProfileContainer');
+
 const logoutBtn = document.getElementById('logoutBtn');
 const profileName = document.getElementById('profileName');
 const profileEmail = document.getElementById('profileEmail');
@@ -21,30 +38,64 @@ const passwordInput = document.getElementById('password');
 const nameInput = document.getElementById('name');
 const nameGroup = document.getElementById('nameGroup');
 
-let isLoginMode = true;
+const otpForm = document.getElementById('otpForm');
+const otpCode = document.getElementById('otpCode');
+const otpError = document.getElementById('otpError');
+const otpSuccess = document.getElementById('otpSuccess');
+const otpSubmitText = document.getElementById('otpSubmitText');
+const otpLoader = document.getElementById('otpLoader');
+const resendOtpBtn = document.getElementById('resendOtpBtn');
 
-function checkAuth() {
-  const token = localStorage.getItem('token');
-  const userStr = localStorage.getItem('user');
-  if (token && userStr) {
-    const user = JSON.parse(userStr);
-    profileName.textContent = user.name;
+let isLoginMode = true;
+let currentUser = null;
+let currentToken = null;
+
+// --- AUTH STATE OBSERVER ---
+onAuthStateChanged(auth, async (user) => {
+  currentUser = user;
+  if (user) {
+    currentToken = await user.getIdToken();
+    profileName.textContent = user.displayName || 'User';
     profileEmail.textContent = user.email;
     
-    authSection.classList.add('hidden');
-    mainSection.classList.remove('hidden');
-    userProfileContainer.classList.remove('hidden');
-    
-    if (typeof fetchHistory === 'function') {
-      fetchHistory();
+    // Check if verified
+    await user.reload(); // Ensure we have the latest verified status
+    if (user.emailVerified) {
+      showMain();
+      if (typeof fetchHistory === 'function') fetchHistory();
+    } else {
+      showOnboarding();
+      // Auto request OTP if first time
+      if (!sessionStorage.getItem('otp_requested')) {
+        requestOTP();
+      }
     }
   } else {
-    authSection.classList.remove('hidden');
-    mainSection.classList.add('hidden');
-    userProfileContainer.classList.add('hidden');
+    currentToken = null;
+    showAuth();
   }
+});
+
+function showAuth() {
+  authSection.classList.remove('hidden');
+  onboardingSection.classList.add('hidden');
+  mainSection.classList.add('hidden');
+  userProfileContainer.classList.add('hidden');
 }
-checkAuth();
+
+function showOnboarding() {
+  authSection.classList.add('hidden');
+  onboardingSection.classList.remove('hidden');
+  mainSection.classList.add('hidden');
+  userProfileContainer.classList.remove('hidden');
+}
+
+function showMain() {
+  authSection.classList.add('hidden');
+  onboardingSection.classList.add('hidden');
+  mainSection.classList.remove('hidden');
+  userProfileContainer.classList.remove('hidden');
+}
 
 function attachToggleEvent() {
   const toggleBtn = document.getElementById('toggleAuthMode');
@@ -69,7 +120,7 @@ function attachToggleEvent() {
         authSubmitText.textContent = 'Sign Up';
         authSwitchText.innerHTML = `Already have an account? <a href="#" id="toggleAuthMode">Log in</a>`;
       }
-      attachToggleEvent(); // Re-attach to new element
+      attachToggleEvent();
     });
   }
 }
@@ -89,22 +140,14 @@ authForm.addEventListener('submit', async (e) => {
   btn.disabled = true;
   
   try {
-    const endpoint = isLoginMode ? '/login' : '/signup';
-    const payload = isLoginMode ? { email, password } : { name, email, password };
-    const response = await fetch(`${AUTH_API}${endpoint}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Authentication failed');
-    
-    localStorage.setItem('token', data.token);
-    localStorage.setItem('user', JSON.stringify(data.user));
-    checkAuth();
+    if (isLoginMode) {
+      await signInWithEmailAndPassword(auth, email, password);
+    } else {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      await updateProfile(userCredential.user, { displayName: name });
+    }
   } catch (err) {
-    authError.textContent = err.message;
+    authError.textContent = err.message.replace('Firebase: ', '');
     authError.classList.remove('hidden');
   } finally {
     authSubmitText.textContent = isLoginMode ? 'Log In' : 'Sign Up';
@@ -114,15 +157,101 @@ authForm.addEventListener('submit', async (e) => {
 });
 
 logoutBtn.addEventListener('click', () => {
-  localStorage.removeItem('token');
-  localStorage.removeItem('user');
-  checkAuth();
+  signOut(auth);
 });
-// --- END AUTHENTICATION LOGIC ---
+
+// --- OTP LOGIC ---
+async function requestOTP() {
+  if (!currentToken) return;
+  try {
+    sessionStorage.setItem('otp_requested', 'true');
+    otpError.classList.add('hidden');
+    otpSuccess.classList.remove('hidden');
+    otpSuccess.textContent = 'Requesting code...';
+    
+    const response = await fetch(`${AUTH_API}/request-otp`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${currentToken}`
+      }
+    });
+    
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Failed to request OTP');
+    
+    otpSuccess.textContent = 'Code sent to your email!';
+  } catch (err) {
+    otpSuccess.classList.add('hidden');
+    otpError.textContent = err.message;
+    otpError.classList.remove('hidden');
+  }
+}
+
+resendOtpBtn.addEventListener('click', (e) => {
+  e.preventDefault();
+  requestOTP();
+});
+
+otpForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const code = otpCode.value.trim();
+  if (code.length !== 6) return;
+  
+  otpError.classList.add('hidden');
+  otpSuccess.classList.add('hidden');
+  otpSubmitText.textContent = 'Verifying...';
+  otpLoader.classList.remove('hidden');
+  const btn = otpForm.querySelector('button');
+  btn.disabled = true;
+  
+  try {
+    // Refresh token just in case
+    currentToken = await currentUser.getIdToken(true);
+    const response = await fetch(`${AUTH_API}/verify-otp`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${currentToken}`
+      },
+      body: JSON.stringify({ otp: code })
+    });
+    
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Invalid OTP');
+    
+    // Successfully verified!
+    // Reload user to get new verified status
+    await currentUser.reload();
+    // Force token refresh to pick up custom claims if any
+    currentToken = await currentUser.getIdToken(true);
+    
+    showMain();
+    fetchHistory();
+  } catch (err) {
+    otpError.textContent = err.message;
+    otpError.classList.remove('hidden');
+  } finally {
+    otpSubmitText.textContent = 'Verify';
+    otpLoader.classList.add('hidden');
+    btn.disabled = false;
+  }
+});
+
+// --- PWA SERVICE WORKER REGISTRATION ---
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').then(registration => {
+      console.log('SW registered:', registration);
+    }).catch(registrationError => {
+      console.log('SW registration failed:', registrationError);
+    });
+  });
+}
 
 // --- HISTORY LOGIC ---
 const historySidebar = document.getElementById('historySidebar');
 const historyToggleBtn = document.getElementById('historyToggleBtn');
+const historyToggleBtnMain = document.getElementById('historyToggleBtnMain');
 const historyList = document.getElementById('historyList');
 const historyEmpty = document.getElementById('historyEmpty');
 const mainLayout = document.querySelector('.main-layout');
@@ -149,12 +278,11 @@ function formatTimeAgo(isoString) {
 }
 
 async function fetchHistory() {
-  const token = localStorage.getItem('token');
-  if (!token) return;
+  if (!currentToken) return;
   
   try {
     const res = await fetch(HISTORY_API, {
-      headers: { 'Authorization': `Bearer ${token}` }
+      headers: { 'Authorization': `Bearer ${currentToken}` }
     });
     if (!res.ok) throw new Error('Failed to fetch history');
     historyData = await res.json();
@@ -209,11 +337,11 @@ function renderHistory() {
 }
 
 async function deleteHistory(id) {
-  const token = localStorage.getItem('token');
+  if (!currentToken) return;
   try {
     const res = await fetch(`${HISTORY_API}/${id}`, {
       method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` }
+      headers: { 'Authorization': `Bearer ${currentToken}` }
     });
     if (res.ok) {
       const activeItem = document.querySelector(`.history-item.active[data-id="${id}"]`);
@@ -228,12 +356,12 @@ async function deleteHistory(id) {
   }
 }
 
-if (historyToggleBtn) {
-  historyToggleBtn.addEventListener('click', () => {
-    historySidebar.classList.toggle('collapsed');
-    if (mainLayout) mainLayout.classList.toggle('sidebar-closed');
-  });
-}
+const toggleSidebar = () => {
+  historySidebar.classList.toggle('collapsed');
+  if (mainLayout) mainLayout.classList.toggle('sidebar-closed');
+};
+if (historyToggleBtn) historyToggleBtn.addEventListener('click', toggleSidebar);
+if (historyToggleBtnMain) historyToggleBtnMain.addEventListener('click', toggleSidebar);
 // --- END HISTORY LOGIC ---
 
 const analyzeBtn = document.getElementById('analyzeBtn');
@@ -267,26 +395,26 @@ analyzeBtn.addEventListener('click', async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
+        'Authorization': `Bearer ${currentToken}`
       },
       body: JSON.stringify({ code }),
     });
 
     if (response.status === 401 || response.status === 403) {
-      localStorage.removeItem('token');
-      checkAuth();
+      signOut(auth);
       throw new Error('Session expired. Please log in again.');
     }
+    
+    const data = await response.json();
     if (!response.ok) {
-      throw new Error(`Error: ${response.statusText}`);
+      throw new Error(data.error || `Error: ${response.statusText}`);
     }
 
-    const data = await response.json();
     renderResults(data);
     await fetchHistory(); // refresh sidebar
   } catch (error) {
     console.error('Failed to analyze code:', error);
-    alert('Failed to analyze code. Make sure the backend server is running and your API key is set.');
+    alert(error.message || 'Failed to analyze code.');
   } finally {
     // Restore UI state
     analyzeBtn.disabled = false;
