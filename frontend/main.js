@@ -13,8 +13,9 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 
-const API_URL = 'http://localhost:3000/api/analyze';
-const AUTH_API = 'http://localhost:3000/api/auth';
+const API_URL = '/api/analyze';
+const AUTH_API = '/api/auth';
+const HISTORY_API = '/api/history';
 
 // --- UI ELEMENTS ---
 const authSection = document.getElementById('authSection');

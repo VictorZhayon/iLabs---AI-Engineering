@@ -21,21 +21,26 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 let db;
 let adminAuth;
 try {
+    let serviceAccount;
     const serviceAccountPath = './serviceAccountKey.json';
-    if (fs.existsSync(serviceAccountPath)) {
-        const serviceAccount = require(serviceAccountPath);
-        if (serviceAccount.project_id !== "REPLACE_ME") {
-            initializeApp({
-                credential: cert(serviceAccount)
-            });
-            db = getFirestore();
-            adminAuth = getAuth();
-            console.log("Firebase Admin initialized successfully.");
-        } else {
-            console.warn("serviceAccountKey.json is a placeholder. Please update it with real credentials.");
-        }
+    
+    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+        // Load from environment variable in production (Vercel)
+        serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    } else if (fs.existsSync(serviceAccountPath)) {
+        // Load from local file during development
+        serviceAccount = require(serviceAccountPath);
+    }
+
+    if (serviceAccount && serviceAccount.project_id !== "REPLACE_ME") {
+        initializeApp({
+            credential: cert(serviceAccount)
+        });
+        db = getFirestore();
+        adminAuth = getAuth();
+        console.log("Firebase Admin initialized successfully.");
     } else {
-        console.warn("serviceAccountKey.json not found. Firebase Admin is not initialized.");
+        console.warn("Firebase credentials not found or are placeholders. Firebase Admin is not initialized.");
     }
 } catch (error) {
     console.error("Error initializing Firebase Admin:", error);
@@ -315,6 +320,10 @@ app.delete('/api/history/:id', authenticateToken, async (req, res) => {
     }
 });
 
-app.listen(port, () => {
-    console.log(`Backend server running on http://localhost:${port}`);
-});
+if (process.env.NODE_ENV !== 'production') {
+    app.listen(port, () => {
+        console.log(`Backend server running on http://localhost:${port}`);
+    });
+}
+
+module.exports = app;
