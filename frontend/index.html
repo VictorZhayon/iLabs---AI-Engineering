@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="AI Code Analyzer - Get instant feedback, explanations, and suggestions for your code." />
     <title>AI Code Analyzer</title>
@@ -155,10 +155,16 @@
                   </button>
                   <h2>Analyze Code</h2>
                 </div>
-                <button id="analyzeBtn" class="btn primary-btn">
-                  <span class="btn-text">Analyze</span>
-                  <div class="loader hidden"></div>
-                </button>
+                <div class="header-buttons">
+                  <button id="clearBtn" class="btn secondary-btn" title="Clear editor" type="button">
+                    <span class="btn-text">Clear</span>
+                  </button>
+                  <button id="analyzeBtn" class="btn primary-btn" title="Analyze snippet (Ctrl + Enter)">
+                    <span class="btn-text">Analyze</span>
+                    <span class="btn-kbd">Ctrl+↵</span>
+                    <div class="loader hidden"></div>
+                  </button>
+                </div>
               </div>
               <div class="editor-container">
                 <textarea id="codeInput" placeholder="Paste your code here... (JavaScript, Python, React, etc.)" spellcheck="false"></textarea>
@@ -167,6 +173,15 @@
             </section>
 
             <section id="resultsSection" class="results-section hidden">
+              <div class="results-header-actions">
+                <button id="copyAnalysisBtn" class="btn secondary-btn copy-btn" title="Copy full analysis report">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                  <span id="copyAnalysisText">Copy Report</span>
+                </button>
+              </div>
               <div class="result-card glass-panel fade-in delay-1">
                 <div class="card-header">
                   <div class="icon-wrapper blue">
@@ -209,6 +224,7 @@
         </div>
       </main>
     </div>
+    <div id="toastContainer" class="toast-container"></div>
     <script type="module" src="/main.js"></script>
   </body>
 </html>

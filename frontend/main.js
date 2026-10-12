@@ -1,6 +1,14 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut, onAuthStateChanged } from 'firebase/auth';
+import { 
+  getAuth, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  updateProfile, 
+  signOut, 
+  onAuthStateChanged 
+} from 'firebase/auth';
 
+// Firebase Client configuration
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -49,30 +57,89 @@ const resendOtpBtn = document.getElementById('resendOtpBtn');
 
 let isLoginMode = true;
 let currentUser = null;
-let currentToken = null;
+let currentResultsData = null;
+
+// Helper: Escape HTML strings to prevent XSS injection
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+// Toast notification helper (replaces browser alerts)
+function showToast(message, type = 'info') {
+  let toastContainer = document.getElementById('toastContainer');
+  if (!toastContainer) {
+    toastContainer = document.createElement('div');
+    toastContainer.id = 'toastContainer';
+    toastContainer.className = 'toast-container';
+    document.body.appendChild(toastContainer);
+  }
+
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.innerHTML = `
+    <span class="toast-message">${escapeHtml(message)}</span>
+    <button class="toast-close" title="Dismiss" type="button">&times;</button>
+  `;
+
+  toast.querySelector('.toast-close').addEventListener('click', () => {
+    toast.classList.add('fade-out');
+    setTimeout(() => toast.remove(), 250);
+  });
+
+  toastContainer.appendChild(toast);
+
+  setTimeout(() => {
+    if (toast.parentNode) {
+      toast.classList.add('fade-out');
+      setTimeout(() => toast.remove(), 250);
+    }
+  }, 3500);
+}
+
+// Helper: Always fetch a fresh, non-expired ID token from Firebase
+async function getAuthToken(forceRefresh = false) {
+  const user = auth.currentUser;
+  if (!user) return null;
+  try {
+    return await user.getIdToken(forceRefresh);
+  } catch (err) {
+    console.error("Failed to acquire valid ID token:", err);
+    return null;
+  }
+}
 
 // --- AUTH STATE OBSERVER ---
 onAuthStateChanged(auth, async (user) => {
   currentUser = user;
   if (user) {
-    currentToken = await user.getIdToken();
-    profileName.textContent = user.displayName || 'User';
-    profileEmail.textContent = user.email;
+    profileName.textContent = user.displayName || 'Developer';
+    profileEmail.textContent = user.email || '';
     
-    // Check if verified
-    await user.reload(); // Ensure we have the latest verified status
+    // Safely check latest verification status
+    try {
+      await user.reload();
+    } catch (reloadErr) {
+      console.warn("Could not reload user record:", reloadErr.message);
+    }
+
     if (user.emailVerified) {
       showMain();
-      if (typeof fetchHistory === 'function') fetchHistory();
+      fetchHistory();
     } else {
       showOnboarding();
-      // Auto request OTP if first time
       if (!sessionStorage.getItem('otp_requested')) {
         requestOTP();
       }
     }
   } else {
-    currentToken = null;
+    currentUser = null;
+    sessionStorage.removeItem('otp_requested');
     showAuth();
   }
 });
@@ -98,10 +165,10 @@ function showMain() {
   userProfileContainer.classList.remove('hidden');
 }
 
-function attachToggleEvent() {
-  const toggleBtn = document.getElementById('toggleAuthMode');
-  if (toggleBtn) {
-    toggleBtn.addEventListener('click', (e) => {
+// Event delegation for Login / Signup mode toggle
+if (authSwitchText) {
+  authSwitchText.addEventListener('click', (e) => {
+    if (e.target && e.target.id === 'toggleAuthMode') {
       e.preventDefault();
       isLoginMode = !isLoginMode;
       authError.classList.add('hidden');
@@ -121,11 +188,9 @@ function attachToggleEvent() {
         authSubmitText.textContent = 'Sign Up';
         authSwitchText.innerHTML = `Already have an account? <a href="#" id="toggleAuthMode">Log in</a>`;
       }
-      attachToggleEvent();
-    });
-  }
+    }
+  });
 }
-attachToggleEvent();
 
 authForm.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -137,7 +202,7 @@ authForm.addEventListener('submit', async (e) => {
   authError.classList.add('hidden');
   authSubmitText.textContent = isLoginMode ? 'Logging in...' : 'Signing up...';
   authLoader.classList.remove('hidden');
-  const btn = authForm.querySelector('button');
+  const btn = authForm.querySelector('button[type="submit"]');
   btn.disabled = true;
   
   try {
@@ -146,6 +211,7 @@ authForm.addEventListener('submit', async (e) => {
     } else {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       await updateProfile(userCredential.user, { displayName: name });
+      profileName.textContent = name;
     }
   } catch (err) {
     authError.textContent = err.message.replace('Firebase: ', '');
@@ -157,13 +223,17 @@ authForm.addEventListener('submit', async (e) => {
   }
 });
 
-logoutBtn.addEventListener('click', () => {
-  signOut(auth);
+logoutBtn.addEventListener('click', async () => {
+  sessionStorage.removeItem('otp_requested');
+  await signOut(auth);
+  showToast('Logged out successfully', 'info');
 });
 
-// --- OTP LOGIC ---
+// --- OTP / VERIFICATION LOGIC ---
 async function requestOTP() {
-  if (!currentToken) return;
+  const token = await getAuthToken();
+  if (!token) return;
+
   try {
     sessionStorage.setItem('otp_requested', 'true');
     otpError.classList.add('hidden');
@@ -173,14 +243,16 @@ async function requestOTP() {
     const response = await fetch(`${AUTH_API}/request-otp`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${currentToken}`
+        'Authorization': `Bearer ${token}`
       }
     });
     
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Failed to request OTP');
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to request verification code');
+    }
     
-    otpSuccess.textContent = 'Code sent to your email!';
+    otpSuccess.textContent = 'A 6-digit code has been sent to your email!';
   } catch (err) {
     otpSuccess.classList.add('hidden');
     otpError.textContent = err.message;
@@ -193,39 +265,48 @@ resendOtpBtn.addEventListener('click', (e) => {
   requestOTP();
 });
 
+// Format OTP code input to digits only
+otpCode.addEventListener('input', () => {
+  otpCode.value = otpCode.value.replace(/\D/g, '').slice(0, 6);
+});
+
 otpForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const code = otpCode.value.trim();
-  if (code.length !== 6) return;
+  if (code.length !== 6) {
+    otpError.textContent = 'Please enter a valid 6-digit code';
+    otpError.classList.remove('hidden');
+    return;
+  }
   
   otpError.classList.add('hidden');
   otpSuccess.classList.add('hidden');
   otpSubmitText.textContent = 'Verifying...';
   otpLoader.classList.remove('hidden');
-  const btn = otpForm.querySelector('button');
+  const btn = otpForm.querySelector('button[type="submit"]');
   btn.disabled = true;
   
   try {
-    // Refresh token just in case
-    currentToken = await currentUser.getIdToken(true);
+    const token = await getAuthToken(true);
     const response = await fetch(`${AUTH_API}/verify-otp`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${currentToken}`
+        'Authorization': `Bearer ${token}`
       },
       body: JSON.stringify({ otp: code })
     });
     
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Invalid OTP');
+    if (!response.ok) throw new Error(data.error || 'Invalid verification code');
     
-    // Successfully verified!
-    // Reload user to get new verified status
-    await currentUser.reload();
-    // Force token refresh to pick up custom claims if any
-    currentToken = await currentUser.getIdToken(true);
+    // Successfully verified: reload user and refresh token
+    if (auth.currentUser) {
+      await auth.currentUser.reload();
+      await getAuthToken(true);
+    }
     
+    showToast('Email verified successfully! Welcome to CodeSense.', 'success');
     showMain();
     fetchHistory();
   } catch (err) {
@@ -241,10 +322,10 @@ otpForm.addEventListener('submit', async (e) => {
 // --- PWA SERVICE WORKER REGISTRATION ---
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').then(registration => {
-      console.log('SW registered:', registration);
-    }).catch(registrationError => {
-      console.log('SW registration failed:', registrationError);
+    navigator.serviceWorker.register('/sw.js').then(reg => {
+      console.log('CodeSense Service Worker registered:', reg.scope);
+    }).catch(err => {
+      console.warn('CodeSense Service Worker registration failed:', err);
     });
   });
 }
@@ -259,7 +340,8 @@ const mainLayout = document.querySelector('.main-layout');
 let historyData = [];
 
 function getCodePreview(code) {
-  const inline = code.replace(/\n/g, ' ').trim();
+  if (!code) return '';
+  const inline = code.replace(/\r?\n/g, ' ').trim();
   return inline.length > 50 ? inline.substring(0, 50) + '...' : inline;
 }
 
@@ -270,31 +352,32 @@ function formatTimeAgo(isoString) {
   
   if (seconds < 60) return 'Just now';
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hr ago`;
+  if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
-  return `${days} days ago`;
+  return `${days}d ago`;
 }
 
 async function fetchHistory() {
-  if (!currentToken) return;
+  const token = await getAuthToken();
+  if (!token) return;
   
   try {
     const res = await fetch(HISTORY_API, {
-      headers: { 'Authorization': `Bearer ${currentToken}` }
+      headers: { 'Authorization': `Bearer ${token}` }
     });
     if (!res.ok) throw new Error('Failed to fetch history');
     historyData = await res.json();
     renderHistory();
   } catch (err) {
-    console.error(err);
+    console.error('History fetch error:', err.message);
   }
 }
 
 function renderHistory() {
   historyList.innerHTML = '';
-  if (historyData.length === 0) {
+  if (!historyData || historyData.length === 0) {
     historyEmpty.classList.remove('hidden');
     return;
   }
@@ -304,15 +387,19 @@ function renderHistory() {
     const div = document.createElement('div');
     div.className = 'history-item fade-in';
     div.dataset.id = item.id;
+    
+    // Use escapeHtml to prevent XSS injection from code snippets
     div.innerHTML = `
-      <button class="delete-history-btn" title="Delete entry" data-id="${item.id}">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+      <button class="delete-history-btn" title="Delete entry" data-id="${escapeHtml(item.id)}" type="button">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>
+        </svg>
       </button>
       <div class="history-item-header">
-        <span class="language-badge">${item.language}</span>
-        <span class="history-time">${formatTimeAgo(item.createdAt)}</span>
+        <span class="language-badge">${escapeHtml(item.language || 'code')}</span>
+        <span class="history-time">${escapeHtml(formatTimeAgo(item.createdAt))}</span>
       </div>
-      <div class="history-code-preview">${getCodePreview(item.code)}</div>
+      <div class="history-code-preview">${escapeHtml(getCodePreview(item.code))}</div>
     `;
     
     div.addEventListener('click', (e) => {
@@ -322,13 +409,17 @@ function renderHistory() {
       div.classList.add('active');
       
       codeInput.value = item.code;
-      renderResults(item.result);
+      let resData = item.result;
+      if (typeof resData === 'string') {
+        try { resData = JSON.parse(resData); } catch(e) {}
+      }
+      renderResults(resData);
     });
     
     const delBtn = div.querySelector('.delete-history-btn');
     delBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      if (!confirm('Delete this history entry?')) return;
+      if (!confirm('Are you sure you want to delete this analysis?')) return;
       await deleteHistory(item.id);
     });
     
@@ -337,34 +428,47 @@ function renderHistory() {
 }
 
 async function deleteHistory(id) {
-  if (!currentToken) return;
+  const token = await getAuthToken();
+  if (!token) return;
+  
   try {
     const res = await fetch(`${HISTORY_API}/${id}`, {
       method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${currentToken}` }
+      headers: { 'Authorization': `Bearer ${token}` }
     });
     if (res.ok) {
+      showToast('Analysis removed from history', 'info');
       const activeItem = document.querySelector(`.history-item.active[data-id="${id}"]`);
       if (activeItem) {
         codeInput.value = '';
         resultsSection.classList.add('hidden');
+        currentResultsData = null;
       }
       await fetchHistory();
+    } else {
+      const data = await res.json();
+      showToast(data.error || 'Failed to delete history entry', 'error');
     }
   } catch (err) {
     console.error('Error deleting history:', err);
+    showToast('Network error while deleting entry', 'error');
   }
 }
 
 const toggleSidebar = () => {
   historySidebar.classList.toggle('collapsed');
-  if (mainLayout) mainLayout.classList.toggle('sidebar-closed');
+  if (mainLayout) {
+    mainLayout.classList.toggle('sidebar-closed');
+  }
 };
 if (historyToggleBtn) historyToggleBtn.addEventListener('click', toggleSidebar);
 if (historyToggleBtnMain) historyToggleBtnMain.addEventListener('click', toggleSidebar);
-// --- END HISTORY LOGIC ---
 
+// --- MAIN ANALYSIS & ACTIONS ---
 const analyzeBtn = document.getElementById('analyzeBtn');
+const clearBtn = document.getElementById('clearBtn');
+const copyAnalysisBtn = document.getElementById('copyAnalysisBtn');
+const copyAnalysisText = document.getElementById('copyAnalysisText');
 const codeInput = document.getElementById('codeInput');
 const btnText = analyzeBtn.querySelector('.btn-text');
 const loader = analyzeBtn.querySelector('.loader');
@@ -374,11 +478,80 @@ const explanationContent = document.getElementById('explanationContent');
 const issuesList = document.getElementById('issuesList');
 const suggestionsList = document.getElementById('suggestionsList');
 
+// Clear Editor & Results
+if (clearBtn) {
+  clearBtn.addEventListener('click', () => {
+    codeInput.value = '';
+    resultsSection.classList.add('hidden');
+    currentResultsData = null;
+    document.querySelectorAll('.history-item').forEach(el => el.classList.remove('active'));
+    codeInput.focus();
+  });
+}
+
+// Keyboard Shortcut: Ctrl+Enter (or Cmd+Enter) to analyze, Esc to clear
+codeInput.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault();
+    analyzeBtn.click();
+  }
+});
+
+// Copy Analysis Report to Clipboard
+if (copyAnalysisBtn) {
+  copyAnalysisBtn.addEventListener('click', async () => {
+    if (!currentResultsData) return;
+    
+    let report = `# CodeSense AI Analysis Report\n\n`;
+    report += `## Explanation\n${currentResultsData.explanation || 'N/A'}\n\n`;
+    
+    report += `## Potential Issues\n`;
+    if (currentResultsData.issues && currentResultsData.issues.length > 0) {
+      currentResultsData.issues.forEach(issue => {
+        report += `- ${issue}\n`;
+      });
+    } else {
+      report += `No major issues detected.\n`;
+    }
+    report += `\n`;
+
+    report += `## Suggestions\n`;
+    if (currentResultsData.suggestions && currentResultsData.suggestions.length > 0) {
+      currentResultsData.suggestions.forEach(sugg => {
+        report += `- ${sugg}\n`;
+      });
+    } else {
+      report += `No suggestions at this time.\n`;
+    }
+
+    try {
+      await navigator.clipboard.writeText(report);
+      copyAnalysisText.textContent = 'Copied!';
+      showToast('Analysis report copied to clipboard!', 'success');
+      setTimeout(() => {
+        copyAnalysisText.textContent = 'Copy Report';
+      }, 2000);
+    } catch (clipErr) {
+      console.warn("Clipboard write failed:", clipErr);
+      showToast('Failed to copy to clipboard', 'error');
+    }
+  });
+}
+
 analyzeBtn.addEventListener('click', async () => {
   const code = codeInput.value.trim();
   
   if (!code) {
-    alert('Please enter some code to analyze.');
+    showToast('Please enter or paste code to analyze.', 'info');
+    codeInput.focus();
+    return;
+  }
+
+  // Refresh token before sending request
+  const token = await getAuthToken();
+  if (!token) {
+    showToast('Your session has expired. Please log in again.', 'info');
+    await signOut(auth);
     return;
   }
 
@@ -386,8 +559,6 @@ analyzeBtn.addEventListener('click', async () => {
   analyzeBtn.disabled = true;
   btnText.textContent = 'Analyzing...';
   loader.classList.remove('hidden');
-  
-  // Hide results if they were visible
   resultsSection.classList.add('hidden');
   
   try {
@@ -395,28 +566,37 @@ analyzeBtn.addEventListener('click', async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${currentToken}`
+        'Authorization': `Bearer ${token}`
       },
       body: JSON.stringify({ code }),
     });
 
-    if (response.status === 401 || response.status === 403) {
-      signOut(auth);
-      throw new Error('Session expired. Please log in again.');
-    }
-    
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error || `Error: ${response.statusText}`);
+    if (response.status === 401) {
+      await signOut(auth);
+      showToast('Session expired. Please log in again.', 'info');
+      return;
     }
 
+    const data = await response.json();
+
+    if (response.status === 403 && data.error && data.error.includes('Email must be verified')) {
+      showToast('Please verify your email before analyzing code.', 'info');
+      showOnboarding();
+      requestOTP();
+      return;
+    }
+    
+    if (!response.ok) {
+      throw new Error(data.error || `Error ${response.status}: Failed to analyze code`);
+    }
+
+    currentResultsData = data;
     renderResults(data);
-    await fetchHistory(); // refresh sidebar
+    await fetchHistory(); // refresh sidebar with new entry
   } catch (error) {
     console.error('Failed to analyze code:', error);
-    alert(error.message || 'Failed to analyze code.');
+    showToast(error.message || 'Failed to analyze code.', 'error');
   } finally {
-    // Restore UI state
     analyzeBtn.disabled = false;
     btnText.textContent = 'Analyze';
     loader.classList.add('hidden');
@@ -424,18 +604,21 @@ analyzeBtn.addEventListener('click', async () => {
 });
 
 function renderResults(data) {
+  if (!data) return;
+  currentResultsData = data;
+
   // Clear previous results
   explanationContent.innerHTML = '';
   issuesList.innerHTML = '';
   suggestionsList.innerHTML = '';
 
-  // Render Explanation
+  // Render Explanation safely
   const p = document.createElement('p');
   p.textContent = data.explanation || 'No explanation provided.';
   explanationContent.appendChild(p);
 
-  // Render Issues
-  if (data.issues && data.issues.length > 0) {
+  // Render Issues safely
+  if (data.issues && Array.isArray(data.issues) && data.issues.length > 0) {
     data.issues.forEach(issue => {
       const li = document.createElement('li');
       li.textContent = issue;
@@ -447,8 +630,8 @@ function renderResults(data) {
     issuesList.appendChild(li);
   }
 
-  // Render Suggestions
-  if (data.suggestions && data.suggestions.length > 0) {
+  // Render Suggestions safely
+  if (data.suggestions && Array.isArray(data.suggestions) && data.suggestions.length > 0) {
     data.suggestions.forEach(suggestion => {
       const li = document.createElement('li');
       li.textContent = suggestion;
@@ -456,7 +639,7 @@ function renderResults(data) {
     });
   } else {
     const li = document.createElement('li');
-    li.textContent = 'No suggestions right now. Code looks good!';
+    li.textContent = 'No suggestions right now. Code looks solid!';
     suggestionsList.appendChild(li);
   }
 
